@@ -21,31 +21,33 @@ public class FiltrationServiceImpl implements FiltrationService {
         this.settingRepository = settingRepository;
     }
 
+    private static boolean isCurrentDay(Date date) {
+        Date twentyFourHoursAgoDate = Date.from(Instant.now().minus(24, ChronoUnit.HOURS));
+        return date.after(twentyFourHoursAgoDate);
+    }
+
     private static boolean isAllowed(NotificationDto notification,
                                      boolean senderIsAllowed,
                                      Collection<HistoryRecordDto> history,
                                      Set<NotificationTypes> allowedTypes) {
-        Date twentyFourHoursAgoDate = Date.from(Instant.now().minus(24, ChronoUnit.HOURS));
 
         return senderIsAllowed &&
                 allowedTypes.contains(notification.getType()) &&
                 history.stream().noneMatch(item ->
                         item.getId().equals(notification.getId()) &&
-                                item.getTimestamp().after(twentyFourHoursAgoDate));
+                                isCurrentDay(item.getTimestamp()));
     }
 
     @Override
     public Collection<NotificationDto> filter(UUID senderId, Collection<NotificationDto> incomingList) {
-        Map<UUID, List<NotificationDto>> incomingNotificationsGroupedByReceiver
-                = incomingList.stream().collect(Collectors.groupingBy(NotificationDto::getReceiver));
-
-
-        return incomingNotificationsGroupedByReceiver.entrySet().stream()
+        return incomingList.stream()
+                .collect(Collectors.groupingBy(NotificationDto::getReceiver))
+                .entrySet().stream()
                 .flatMap((entry) -> {
                     UUID receiverId = entry.getKey();
                     Collection<UUID> blockedSenders = settingRepository.blockedSender(receiverId);
-                    Collection<HistoryRecordDto> history = historyRepository.notificationHistory(receiverId);
                     Set<NotificationTypes> allowedTypes = settingRepository.allowedTypes(receiverId);
+                    Collection<HistoryRecordDto> history = historyRepository.notificationHistory(receiverId);
                     List<NotificationDto> notificationsOfReceiver = entry.getValue();
 
                     boolean senderIsAllowed = !blockedSenders.contains(senderId);
